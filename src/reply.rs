@@ -261,6 +261,27 @@ pub trait Reply: ReplySealed {
     */
 }
 
+#[allow(missing_debug_implementations)]
+/// Boxed reply.
+pub struct BoxedReply {
+    this: Box<dyn Reply>,
+    into_response: fn(Box<dyn Reply>) -> Response
+}
+
+/// Box the reply.
+///
+/// Can be used as a way to unify the types of different possible responses.
+pub fn boxed<T: Reply + 'static>(reply: T) -> BoxedReply {
+    let this = Box::new(reply);
+    let into_response = |this: Box<dyn Reply>| {
+        let raw = Box::into_raw(this);
+        let this: T = *unsafe { Box::from_raw(raw as *mut T) };
+        this.into_response()
+    };
+
+    BoxedReply { this, into_response }
+}
+
 impl<T: ReplySealed> Reply for T {}
 
 fn _assert_object_safe() {
@@ -364,7 +385,7 @@ mod sealed {
     use generic::{Either, One};
     use reject::Reject;
 
-    use super::{HeaderValue, Reply, CONTENT_TYPE};
+    use super::{HeaderValue, Reply, BoxedReply, CONTENT_TYPE};
 
     pub type Response = ::http::Response<Body>;
 
@@ -391,6 +412,14 @@ mod sealed {
         #[inline]
         fn into_response(self) -> Response {
             self.0
+        }
+    }
+
+    impl ReplySealed for BoxedReply {
+        #[inline]
+        fn into_response(self) -> Response {
+            let BoxedReply { this, into_response } = self;
+            into_response(this)
         }
     }
 
